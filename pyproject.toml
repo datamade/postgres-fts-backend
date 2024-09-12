@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools >= 61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "postgres-fts-backend"
+version = "0.0.0"
+dependencies = [
+        'django>=5.0',
+        'django-haystack>=2.8.0',
+        ]
+requires-python = ">= 3.8"
+authors = [{name = "Forest Gregg", email = "fgregg@datamade.us" }]
+description = "A PostgreSQL Full Text Seach Backend for Haystack"
+readme = "README.md"
+classifiers = [
+  "License :: OSI Approved :: MIT License",
+  ]
+
+
+[project.urls]
+Repository = "https://github.com/datamade/postgres-fts-backend"
+Issues = "https://github.com/datamade/postgres-fts-backend/issues"
+Changelog = "https://github.com/datamade/postgres-fts-backend/blob/main/CHANGELOG.md"
+
+[tool.setuptools]
+packages = ["postgres_fts_backend"]
