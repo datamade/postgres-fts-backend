@@ -25,7 +25,7 @@ class PostgresFTSSearchBackend(BaseSearchBackend):
         warn("clear is not implemented in this backend")
 
     @log_query
-    def search(self, query_string, **kwargs):
+    def search(self, query_filter, **kwargs):
         hits = 0
         results = []
         result_class = SearchResult
@@ -39,46 +39,22 @@ class PostgresFTSSearchBackend(BaseSearchBackend):
         if kwargs.get("models"):
             models = kwargs["models"]
 
-        if query_string:
-            for model in models:
-                if query_string == "*":
-                    qs = model.objects.all()
-                else:
-                    for term in query_string.split():
-                        queries = []
+        for model in models:
+            query = build_query(model, query_filter)
+            qs = model.objects.filter(query)
 
-                        for field in model._meta.fields:
-                            if hasattr(field, "related"):
-                                continue
+            hits += len(qs)
 
-                            if field.get_internal_type() not in (
-                                "TextField",
-                                "CharField",
-                                "SlugField",
-                            ):
-                                continue
-
-                            queries.append(Q(**{"%s__icontains" % field.name: term}))
-
-                        if queries:
-                            qs = model.objects.filter(
-                                reduce(lambda x, y: x | y, queries)
-                            )
-                        else:
-                            qs = []
-
-                hits += len(qs)
-
-                for match in qs:
-                    match.__dict__.pop("score", None)
-                    app_label, model_name = get_model_ct_tuple(match)
-                    result = result_class(
-                        app_label, model_name, match.pk, 0, **match.__dict__
-                    )
-                    # For efficiency.
-                    result._model = match.__class__
-                    result._object = match
-                    results.append(result)
+            for match in qs:
+                match.__dict__.pop("score", None)
+                app_label, model_name = get_model_ct_tuple(match)
+                result = result_class(
+                    app_label, model_name, match.pk, 0, **match.__dict__
+                )
+                # For efficiency.
+                result._model = match.__class__
+                result._object = match
+                results.append(result)
 
         return {"results": results, "hits": hits}
 
@@ -93,35 +69,91 @@ class PostgresFTSSearchBackend(BaseSearchBackend):
         end_offset=None,
         limit_to_registered_models=None,
         result_class=None,
-        **kwargs
+        **kwargs,
     ):
         return {"results": [], "hits": 0}
 
 
 class PostgresFTSSearchQuery(BaseSearchQuery):
+
     def build_query(self):
-        if not self.query_filter:
-            return "*"
-
-        return self._build_sub_query(self.query_filter)
-
-    def _build_sub_query(self, search_node):
-        term_list = []
-
-        for child in search_node.children:
-            if isinstance(child, SearchNode):
-                term_list.append(self._build_sub_query(child))
-            else:
-                value = child[1]
-
-                if not hasattr(value, "input_type_name"):
-                    value = PythonData(value)
-
-                term_list.append(value.prepare(self))
-
-        return (" ").join(map(str, term_list))
+        print(self.query_filter)
+        return self.query_filter
 
 
 class PostgresFTSEngine(BaseEngine):
     backend = PostgresFTSSearchBackend
     query = PostgresFTSSearchQuery
+
+
+def build_query(model, search_node, negated=False):
+    print(search_node)
+
+    query = Q()
+
+    for child in search_node.children:
+        if isinstance(child, SearchNode):
+            if child.connector == "AND":
+                query &= build_query(model, child, child.negated)
+            elif child.connector == "OR":
+                query |= build_query(model, child, child.negated)
+            else:
+                breakpoint()
+        else:
+            expression, value = child
+            field, filter_type = search_node.split_expression(expression)
+
+            py_value = str(value)
+
+            if (py_value == "" and not negated) or (py_value == "*" and negated):
+                query = Q(pk_in=[])
+            elif field == "content":
+                if negated:
+                    if py_value == "":
+                        pass
+                    else:
+                        or_queries = Q()
+                        for model_field in model._meta.fields:
+                            if hasattr(field, "related"):
+                                continue
+
+                            if model_field.get_internal_type() not in (
+                                "TextField",
+                                "CharField",
+                                "SlugField",
+                            ):
+                                continue
+
+                            or_queries |= Q(**{f"{model_field.name}__search": py_value})
+                        query &= ~or_queries
+                else:
+                    if py_value == "*":
+                        pass
+                    else:
+                        or_queries = Q()
+                        for model_field in model._meta.fields:
+                            if hasattr(field, "related"):
+                                continue
+
+                            if model_field.get_internal_type() not in (
+                                "TextField",
+                                "CharField",
+                                "SlugField",
+                            ):
+                                continue
+
+                            or_queries |= Q(**{f"{model_field.name}__search": py_value})
+                        query &= or_queries
+            else:
+                if negated:
+                    if py_value == "":
+                        pass
+                    else:
+                        query &= ~Q(**{f"{field}__search": py_value})
+                else:
+                    if py_value == "*":
+                        pass
+                    else:
+                        query &= Q(**{f"{field}__search": py_value})
+
+    return query

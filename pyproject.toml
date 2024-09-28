@@ -17,6 +17,13 @@ classifiers = [
   "License :: OSI Approved :: MIT License",
   ]
 
+[project.optional-dependencies]
+dev = ["pytest",
+       "black",
+       "isort",
+       "flake8",
+]
+
 
 [project.urls]
 Repository = "https://github.com/datamade/postgres-fts-backend"

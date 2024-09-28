@@ -24,6 +24,8 @@ class SimpleSearchBackendTestCase(TestCase):
         ui.build(indexes=[self.index, SimpleMockScoreIndex()])
         self.sample_objs = MockModel.objects.all()
 
+        self.sqs = SearchQuerySet(using="default")
+
     def test_update(self):
         self.backend.update(self.index, self.sample_objs)
 
@@ -37,9 +39,16 @@ class SimpleSearchBackendTestCase(TestCase):
         # No query string should always yield zero results.
         self.assertEqual(self.backend.search(""), {"hits": 0, "results": []})
 
-        self.assertEqual(self.backend.search("*")["hits"], 24)
+        self.assertEqual(self.backend.search()["hits"], 24)
         self.assertEqual(
-            sorted([result.pk for result in self.backend.search("*")["results"]]),
+            sorted(
+                [
+                    result.pk
+                    for result in self.backend.search(
+                        self.sqs.auto_query("*").query.query_filter
+                    )["results"]
+                ]
+            ),
             [
                 1,
                 1,
@@ -195,12 +204,22 @@ class SimpleSearchBackendTestCase(TestCase):
 
     def test_filter_models(self):
         self.backend.update(self.index, self.sample_objs)
-        self.assertEqual(self.backend.search("*", models=set([]))["hits"], 24)
-        self.assertEqual(self.backend.search("*", models=set([MockModel]))["hits"], 23)
+        self.assertEqual(
+            self.backend.search(
+                self.sqs.auto_query("*").query.query_filter, models=set([])
+            )["hits"],
+            24,
+        )
+        self.assertEqual(
+            self.backend.search(
+                self.sqs.auto_query("*").query.query_filter, models=set([MockModel])
+            )["hits"],
+            23,
+        )
 
     def test_more_like_this(self):
         self.backend.update(self.index, self.sample_objs)
-        self.assertEqual(self.backend.search("*")["hits"], 24)
+        self.assertEqual(self.backend.search(self.sqs.auto_query("*"))["hits"], 24)
 
         # Unsupported by 'simple'. Should see empty results.
         self.assertEqual(self.backend.more_like_this(self.sample_objs[0])["hits"], 0)
@@ -212,7 +231,9 @@ class SimpleSearchBackendTestCase(TestCase):
         self.backend.update(index, self.sample_objs)
 
         # 42 is the in the match, which will be removed from the result
-        self.assertEqual(self.backend.search("42")["results"][0].score, 0)
+        self.assertEqual(
+            self.backend.search(self.sqs.auto_query("42"))["results"][0].score, 0
+        )
 
 
 @override_settings(DEBUG=True)
@@ -240,9 +261,9 @@ class LiveSimpleSearchQuerySetTestCase(TestCase):
     def test_general_queries(self):
         # For now, just make sure these don't throw an exception.
         # They won't work until the simple backend is improved.
-        self.assertTrue(len(self.sqs.auto_query("daniel")) > 0)
-        self.assertTrue(len(self.sqs.filter(text="index")) > 0)
-        self.assertTrue(len(self.sqs.exclude(name="daniel")) > 0)
+        self.assertTrue(len(self.sqs.auto_query("daniel1")) > 0)
+        self.assertTrue(len(self.sqs.filter(foo="index")) > 0)
+        self.assertTrue(len(self.sqs.exclude(author="daniel1")) > 0)
         self.assertTrue(len(self.sqs.order_by("-pub_date")) > 0)
 
     def test_general_queries_unicode(self):
@@ -254,7 +275,7 @@ class LiveSimpleSearchQuerySetTestCase(TestCase):
         self.assertEqual(len(self.sqs.filter(text=1).more_like_this(mm1)), 0)
 
     def test_values_queries(self):
-        sqs = self.sqs.auto_query("daniel")
+        sqs = self.sqs.auto_query("daniel1")
         self.assertTrue(len(sqs) > 0)
 
         flat_scores = sqs.values_list("score", flat=True)
