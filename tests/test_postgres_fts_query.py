@@ -19,7 +19,11 @@ class SimpleSearchQueryTestCase(TestCase):
     def test_build_query_multiple_word(self):
         self.sq.add_filter(SQ(name="foo"))
         self.sq.add_filter(SQ(name="bar"))
-        self.assertEqual(self.sq.build_query(), "foo bar")
+        self.assertEqual(self.sq.build_query(), "(foo & bar)")
+
+
+    def test_build_query_or(self):
+        raise UserError("you want to implement an or")
 
     def test_set_result_class(self):
         # Assert that we're defaulting to ``SearchResult``.
