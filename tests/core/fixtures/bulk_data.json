@@ -221,7 +221,7 @@
         "model": "core.mockmodel",
         "fields": {
             "author": "daniel3",
-            "foo": "However, sometimes, even more control over what gets placed in your index is needed. To facilitate this, SearchIndex objects have a \u2018preparation\u2019 stage that populates data just before it is indexed. You can hook into this phase in several ways. This should be very familiar to developers who have used Django\u2019s forms before as it loosely follows similar concepts, though the emphasis here is less on cleansing data from user input and more on making the data friendly to the search backend.",
+            "foo": "However, sometimes, even more control over what gets placed in your index is needed. To facilitate this, SearchIndex objects have a \u2018preparation\u2019 stage that populates data just before it is indexed. You can hook into this phase in several ways. This should be very familiar to developers who have used Django\u2019s forms before as it loosely follows similar concepts, though the emphasis here is less on cleansing data from user input and more on making the data friendly to the search backend get.",
             "pub_date": "2009-07-17 19:30:00",
             "tag": 1
         }

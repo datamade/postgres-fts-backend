@@ -6,10 +6,10 @@ from haystack import connections
 from haystack.query import SearchQuerySet
 from haystack.utils.loading import UnifiedIndex
 
-from tests.core.models import MockModel, OneToManyRightSideModel, ScoreMockModel
+from tests.core.models import MockModel
 
 from .mocks import MockSearchResult
-from .search_indexes import SimpleMockScoreIndex, SimpleMockSearchIndex
+from .search_indexes import SimpleMockSearchIndex
 
 
 class SimpleSearchBackendTestCase(TestCase):
@@ -21,7 +21,7 @@ class SimpleSearchBackendTestCase(TestCase):
         self.backend = connections["default"].get_backend()
         ui = connections["default"].get_unified_index()
         self.index = SimpleMockSearchIndex()
-        ui.build(indexes=[self.index, SimpleMockScoreIndex()])
+        ui.build(indexes=[self.index])
         self.sample_objs = MockModel.objects.all()
 
         self.sqs = SearchQuerySet(using="default")
@@ -37,19 +37,21 @@ class SimpleSearchBackendTestCase(TestCase):
 
     def test_search(self):
         # No query string should always yield zero results.
-        self.assertEqual(self.backend.search(self.sqs.auto_query("").query.query_filter), {"hits": 0, "results": []})
+        self.assertEqual(
+            self.backend.search(self.sqs.auto_query("").query.build_query()),
+            {"hits": 0, "results": []},
+        )
 
         self.assertEqual(
             sorted(
                 [
                     result.pk
-                    for result in self.backend.search(
-                        self.sqs.auto_query("*").query.query_filter
-                    )["results"]
+                    for result in self.backend.search(self.sqs.query.build_query())[
+                        "results"
+                    ]
                 ]
             ),
             [
-                1,
                 1,
                 2,
                 3,
@@ -76,55 +78,167 @@ class SimpleSearchBackendTestCase(TestCase):
             ],
         )
 
-        self.assertEqual(self.backend.search(self.sqs.auto_query("daniel1").query.query_filter)["hits"], 7)
         self.assertEqual(
-            [result.pk for result in self.backend.search(self.sqs.auto_query("daniel1").query.query_filter)["results"]],
-            [1, 5, 6, 7, 9, 11, 18]
+            self.backend.search(
+                self.sqs.auto_query("should be a string").query.build_query()
+            )["hits"],
+            1,
         )
-
-        self.assertEqual(self.backend.search(self.sqs.auto_query("should be a string").query.query_filter)["hits"], 1)
         self.assertEqual(
             [
                 result.pk
-                for result in self.backend.search(self.sqs.auto_query("should be a string").query.query_filter)["results"]
+                for result in self.backend.search(
+                    self.sqs.auto_query("should be a string").query.build_query()
+                )["results"]
             ],
             [8],
         )
         # Ensure the results are ``SearchResult`` instances...
         self.assertEqual(
-            self.backend.search(self.sqs.auto_query("should be a string").query.query_filter)["results"][0].score, 0
+            self.backend.search(
+                self.sqs.auto_query("should be a string").query.build_query()
+            )["results"][0].score,
+            0,
         )
 
-        self.assertEqual(self.backend.search(self.sqs.auto_query("index document").query.query_filter)["hits"], 6)
         self.assertEqual(
-            [result.pk for result in self.backend.search(self.sqs.auto_query("index document").query.query_filter)["results"]],
-            [2, 3, 15, 16, 17, 18],
+            self.backend.search(
+                self.sqs.auto_query("index document").query.build_query()
+            )["hits"],
+            5,
+        )
+        self.assertEqual(
+            [
+                result.pk
+                for result in self.backend.search(
+                    self.sqs.auto_query("index document").query.build_query()
+                )["results"]
+            ],
+            [2, 3, 15, 17, 18],
+        )
+
+        self.assertEqual(
+            [
+                result.pk
+                for result in self.backend.search(
+                    self.sqs.auto_query("index -document").query.build_query()
+                )["results"]
+            ],
+            [1, 6, 12, 13, 14, 19, 20, 21, 22],
+        )
+
+        self.assertEqual(
+            [
+                result.pk
+                for result in self.backend.search(
+                    self.sqs.auto_query("here SearchIndex get").query.build_query()
+                )["results"]
+            ],
+            [3, 22, 23],
+        )
+
+        self.assertEqual(
+            [
+                result.pk
+                for result in self.backend.search(
+                    self.sqs.auto_query('here "SearchIndex get"').query.build_query()
+                )["results"]
+            ],
+            [23],
+        )
+
+        self.assertEqual(
+            [
+                result.pk
+                for result in self.backend.search(
+                    self.sqs.auto_query('here -"SearchIndex get"').query.build_query()
+                )["results"]
+            ],
+            [
+                1,
+                2,
+                3,
+                4,
+                5,
+                6,
+                7,
+                8,
+                9,
+                10,
+                11,
+                12,
+                13,
+                14,
+                15,
+                16,
+                17,
+                18,
+                19,
+                20,
+                21,
+                22,
+            ],
+        )
+
+        self.assertEqual(
+            [
+                result.pk
+                for result in self.backend.search(
+                    self.sqs.auto_query(
+                        "index -document 'more control'"
+                    ).query.build_query()
+                )["results"]
+            ],
+            [12, 22],
         )
 
         # Regression-ville
         self.assertEqual(
             [
                 result.object.id
-                for result in self.backend.search(self.sqs.auto_query("index document").query.query_filter)["results"]
+                for result in self.backend.search(
+                    self.sqs.auto_query("index document").query.build_query()
+                )["results"]
             ],
-            [2, 3, 15, 16, 17, 18],
+            [2, 3, 15, 17, 18],
         )
         self.assertEqual(
-            self.backend.search(self.sqs.auto_query("index document").query.query_filter)["results"][0].model, MockModel
+            self.backend.search(
+                self.sqs.auto_query("index document").query.build_query()
+            )["results"][0].model,
+            MockModel,
         )
 
         # No support for spelling suggestions
-        self.assertEqual(self.backend.search(self.sqs.auto_query("Indx").query.query_filter)["hits"], 0)
-        self.assertFalse(self.backend.search(self.sqs.auto_query("Indx").query.query_filter).get("spelling_suggestion"))
+        self.assertEqual(
+            self.backend.search(self.sqs.auto_query("Indx").query.build_query())[
+                "hits"
+            ],
+            0,
+        )
+        self.assertFalse(
+            self.backend.search(self.sqs.auto_query("Indx").query.build_query()).get(
+                "spelling_suggestion"
+            )
+        )
 
         # No support for facets
         self.assertEqual(
-            self.backend.search(self.sqs.auto_query("").query.query_filter, facets=["name"]), {"hits": 0, "results": []}
+            self.backend.search(
+                self.sqs.auto_query("").query.build_query(), facets=["name"]
+            ),
+            {"hits": 0, "results": []},
         )
-        self.assertEqual(self.backend.search(self.sqs.auto_query("daniel1").query.query_filter, facets=["name"])["hits"], 7)
         self.assertEqual(
             self.backend.search(
-                self.sqs.auto_query("").query.query_filter,
+                self.sqs.auto_query("index documents").query.build_query(),
+                facets=["name"],
+            )["hits"],
+            5,
+        )
+        self.assertEqual(
+            self.backend.search(
+                self.sqs.auto_query("").query.build_query(),
                 date_facets={
                     "pub_date": {
                         "start_date": date(2008, 2, 26),
@@ -137,7 +251,7 @@ class SimpleSearchBackendTestCase(TestCase):
         )
         self.assertEqual(
             self.backend.search(
-                self.sqs.auto_query("daniel1").query.query_filter,
+                self.sqs.auto_query("index documents").query.build_query(),
                 date_facets={
                     "pub_date": {
                         "start_date": date(2008, 2, 26),
@@ -146,69 +260,77 @@ class SimpleSearchBackendTestCase(TestCase):
                     }
                 },
             )["hits"],
-            7,
+            5,
         )
         self.assertEqual(
-            self.backend.search(self.sqs.auto_query("").query.query_filter, query_facets={"name": "[* TO e]"}),
+            self.backend.search(
+                self.sqs.auto_query("").query.build_query(),
+                query_facets={"name": "[* TO e]"},
+            ),
             {"hits": 0, "results": []},
         )
         self.assertEqual(
-            self.backend.search(self.sqs.auto_query("daniel1").query.query_filter, query_facets={"name": "[* TO e]"})["hits"], 7
+            self.backend.search(
+                self.sqs.auto_query("index documents").query.build_query(),
+                query_facets={"name": "[* TO e]"},
+            )["hits"],
+            5,
         )
-        self.assertFalse(self.backend.search(self.sqs.auto_query("").query.query_filter).get("facets"))
-        self.assertFalse(self.backend.search(self.sqs.auto_query("daniel1").query.query_filter).get("facets"))
+        self.assertFalse(
+            self.backend.search(self.sqs.auto_query("").query.build_query()).get(
+                "facets"
+            )
+        )
+        self.assertFalse(
+            self.backend.search(self.sqs.auto_query("daniel1").query.build_query()).get(
+                "facets"
+            )
+        )
 
         # Note that only textual-fields are supported.
-        self.assertEqual(self.backend.search(self.sqs.auto_query("2009-06-18").query.query_filter)["hits"], 0)
+        self.assertEqual(
+            self.backend.search(self.sqs.auto_query("2009-06-18").query.build_query())[
+                "hits"
+            ],
+            0,
+        )
 
         # Ensure that swapping the ``result_class`` works.
         self.assertTrue(
             isinstance(
-                self.backend.search(self.sqs.auto_query("index document").query.query_filter, result_class=MockSearchResult)[
-                    "results"
-                ][0],
+                self.backend.search(
+                    self.sqs.auto_query("index document").query.build_query(),
+                    result_class=MockSearchResult,
+                )["results"][0],
                 MockSearchResult,
             )
         )
 
         # Ensure empty queries does not raise.
         self.assertEqual(
-            self.backend.search(self.sqs.auto_query("foo").query.query_filter, models=[OneToManyRightSideModel]),
+            self.backend.search(self.sqs.auto_query("foo").query.build_query()),
             {"hits": 0, "results": []},
         )
 
     def test_filter_models(self):
         self.backend.update(self.index, self.sample_objs)
         self.assertEqual(
-            self.backend.search(
-                self.sqs.auto_query("*").query.query_filter, models=set([])
-            )["hits"],
-            24,
+            self.backend.search(self.sqs.query.build_query(), models=set([]))["hits"],
+            23,
         )
         self.assertEqual(
-            self.backend.search(
-                self.sqs.auto_query("*").query.query_filter, models=set([MockModel])
-            )["hits"],
+            self.backend.search(self.sqs.query.build_query(), models=set([MockModel]))[
+                "hits"
+            ],
             23,
         )
 
     def test_more_like_this(self):
         self.backend.update(self.index, self.sample_objs)
-        self.assertEqual(self.backend.search(self.sqs.auto_query("*").query.query_filter)["hits"], 24)
+        self.assertEqual(self.backend.search(self.sqs.query.build_query())["hits"], 23)
 
         # Unsupported by 'simple'. Should see empty results.
         self.assertEqual(self.backend.more_like_this(self.sample_objs[0])["hits"], 0)
-
-    def test_score_field_collision(self):
-        index = connections["default"].get_unified_index().get_index(ScoreMockModel)
-        sample_objs = ScoreMockModel.objects.all()
-
-        self.backend.update(index, self.sample_objs)
-
-        # 42 is the in the match, which will be removed from the result
-        self.assertEqual(
-            self.backend.search(self.sqs.auto_query("42").query.query_filter)["results"][0].score, 0
-        )
 
 
 @override_settings(DEBUG=True)
@@ -236,9 +358,8 @@ class LiveSimpleSearchQuerySetTestCase(TestCase):
     def test_general_queries(self):
         # For now, just make sure these don't throw an exception.
         # They won't work until the simple backend is improved.
-        self.assertTrue(len(self.sqs.auto_query("daniel1")) > 0)
-        self.assertTrue(len(self.sqs.filter(foo="index")) > 0)
-        self.assertTrue(len(self.sqs.exclude(author="daniel1")) > 0)
+        self.assertTrue(len(self.sqs.auto_query("index")) > 0)
+        self.assertTrue(len(self.sqs.exclude(name="daniel1")) > 0)
         self.assertTrue(len(self.sqs.order_by("-pub_date")) > 0)
 
     def test_general_queries_unicode(self):
@@ -248,16 +369,3 @@ class LiveSimpleSearchQuerySetTestCase(TestCase):
         # MLT shouldn't be horribly broken. This used to throw an exception.
         mm1 = MockModel.objects.get(pk=1)
         self.assertEqual(len(self.sqs.filter(text=1).more_like_this(mm1)), 0)
-
-    def test_values_queries(self):
-        sqs = self.sqs.auto_query("daniel1")
-        self.assertTrue(len(sqs) > 0)
-
-        flat_scores = sqs.values_list("score", flat=True)
-        self.assertEqual(flat_scores[0], 0)
-
-        scores = sqs.values_list("id", "score")
-        self.assertEqual(scores[0], [1, 0])
-
-        scores_dict = sqs.values("id", "score")
-        self.assertEqual(scores_dict[0], {"id": 1, "score": 0})
