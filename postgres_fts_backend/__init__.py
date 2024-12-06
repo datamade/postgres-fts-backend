@@ -14,15 +14,34 @@ from haystack.backends import (
     SearchNode,
     log_query,
 )
-from haystack.constants import DEFAULT_ALIAS
+from haystack.constants import DEFAULT_ALIAS, ID
+from haystack.exceptions import SkipDocument
 from haystack.inputs import Clean, PythonData
 from haystack.models import SearchResult
 from haystack.utils import get_model_ct_tuple
 
 
 class PostgresFTSSearchBackend(BaseSearchBackend):
-    def update(self, indexer, iterable, commit=True):
-        warn("update is not implemented in this backend")
+    def update(self, index, iterable, commit=True):
+        prepped_docs = []
+
+        for obj in iterable[0:10]:
+            try:
+                print(obj)
+                prepped_data = index.full_prepare(obj)
+                prepped_data["_id"] = prepped_data[ID]
+                prepped_docs.append(prepped_data)
+            except SkipDocument:
+                self.log.debug("Indexing for object `%s` skipped", obj)
+
+        from chicago.models import SearchBill
+        prepped_models = []
+        for d in prepped_docs:
+            prepped_models.append(SearchBill(text=d['text'], bill=d['django_id']))
+
+        SearchBill.objects.bulk_create(prepped_models)
+        print("success")
+
 
     def remove(self, obj, commit=True):
         warn("remove is not implemented in this backend")
