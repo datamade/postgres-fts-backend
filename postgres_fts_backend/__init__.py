@@ -34,10 +34,14 @@ class PostgresFTSSearchBackend(BaseSearchBackend):
             except SkipDocument:
                 self.log.debug("Indexing for object `%s` skipped", obj)
 
-        from chicago.models import SearchBill
+        print("objects prepped")
+        from chicago.models import SearchBill, ChicagoBill
+
         prepped_models = []
         for d in prepped_docs:
-            prepped_models.append(SearchBill(text=d['text'], bill=d['django_id']))
+            chicago_bill = ChicagoBill.objects.get(id=d['django_id'])
+            search_bill = SearchBill(text=d['text'], bill=chicago_bill, extras={'django_ct': d['django_ct'], 'django_id': d['django_id']})
+            prepped_models.append(search_bill)
 
         SearchBill.objects.bulk_create(prepped_models)
         print("success")
